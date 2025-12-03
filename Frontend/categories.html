@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinTrack – Categories</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="logo">FT</div>
+      <span>FinTrack</span>
+    </div>
+    <div class="nav-links">
+      <a href="dashboard.html">Dashboard</a>
+      <a href="expenses.html">Expenses</a>
+      <a href="reports.html">Reports</a>
+      <a href="categories.html" class="active">Categories</a>
+      <a href="profile.html">Profile</a>
+      <a href="admin-dashboard.html" id="adminLink" style="display: none; background: #f59e0b; color: white;">⚙️ Admin Panel</a>
+      <button id="logoutBtn" class="btn-secondary" style="margin-left: auto;">Logout</button>
+    </div>
+  </nav>
+
+  <main class="container">
+    <h1>Manage Categories</h1>
+
+    <!-- Add Category Form -->
+    <div class="form-card">
+      <h2 id="formTitle">Add New Category</h2>
+      <input type="hidden" id="editingId" value="">
+      <div class="form-group">
+        <label>Category Name</label>
+        <input id="catName" type="text" placeholder="e.g., Travel, Education, Hobbies">
+      </div>
+      <div class="form-group">
+        <label>Description (Optional)</label>
+        <input id="catDesc" type="text" placeholder="Brief description">
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button id="addCatBtn" class="btn-primary">Add Category</button>
+        <button id="cancelEditBtn" class="btn-secondary" style="display: none;">Cancel</button>
+      </div>
+      <p id="catMsg" class="message"></p>
+    </div>
+
+    <!-- Categories List with Stats -->
+    <h2>Your Categories</h2>
+    <div id="categoriesList" class="category-list"></div>
+  </main>
+
+  <script src="api-service.js"></script>
+  
+  <script>
+    if (!requireAuth()) {
+      // Redirects if not authenticated
+    }
+
+    // Check if user is admin and show admin link
+    async function checkAdminRole() {
+      try {
+        const result = await API.auth.getCurrentUser();
+        if (result.success && result.data.user.role === 'admin') {
+          document.getElementById('adminLink').style.display = 'inline-block';
+        }
+      } catch (error) {
+        console.error('Error checking admin role:', error);
+      }
+    }
+    checkAdminRole();
+
+    // Logout
+    document.getElementById('logoutBtn').addEventListener('click', async function() {
+      await API.auth.logout();
+      window.location.href = 'index.html';
+    });
+
+    // Add/Update category
+    document.getElementById('addCatBtn').addEventListener('click', async function() {
+      const name = document.getElementById('catName').value.trim();
+      const description = document.getElementById('catDesc').value.trim();
+      const editingId = document.getElementById('editingId').value;
+      const msgEl = document.getElementById('catMsg');
+
+      if (!name) {
+        msgEl.textContent = 'Please enter a category name';
+        msgEl.className = 'message error';
+        return;
+      }
+
+      try {
+        const btn = this;
+        btn.disabled = true;
+        
+        let result;
+        if (editingId) {
+          btn.textContent = 'Updating...';
+          result = await API.categories.update(editingId, { name, description });
+        } else {
+          btn.textContent = 'Adding...';
+          result = await API.categories.create({ name, description });
+        }
+
+        if (result.success) {
+          msgEl.textContent = editingId ? 'Category updated!' : 'Category added!';
+          msgEl.className = 'message success';
+          
+          clearForm();
+          loadCategories();
+        } else {
+          msgEl.textContent = result.message || 'Failed to save category';
+          msgEl.className = 'message error';
+          btn.disabled = false;
+        }
+      } catch (error) {
+        msgEl.textContent = 'Error: ' + error.message;
+        msgEl.className = 'message error';
+        this.disabled = false;
+      }
+    });
+
+    // Cancel edit
+    document.getElementById('cancelEditBtn').addEventListener('click', function() {
+      clearForm();
+    });
+
+    // Clear form
+    function clearForm() {
+      document.getElementById('catName').value = '';
+      document.getElementById('catDesc').value = '';
+      document.getElementById('editingId').value = '';
+      document.getElementById('formTitle').textContent = 'Add New Category';
+      const btn = document.getElementById('addCatBtn');
+      btn.textContent = 'Add Category';
+      btn.disabled = false; // Re-enable button
+      document.getElementById('cancelEditBtn').style.display = 'none';
+      document.getElementById('catMsg').textContent = '';
+    }
+
+    // Edit category
+    function editCategory(id, name, description) {
+      document.getElementById('editingId').value = id;
+      document.getElementById('catName').value = name;
+      document.getElementById('catDesc').value = description || '';
+      document.getElementById('formTitle').textContent = 'Edit Category';
+      document.getElementById('addCatBtn').textContent = 'Update Category';
+      document.getElementById('cancelEditBtn').style.display = 'inline-block';
+      
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Delete category
+    async function deleteCategory(id) {
+      if (!confirm('Are you sure? This will not delete expenses in this category.')) {
+        return;
+      }
+
+      try {
+        const result = await API.categories.delete(id);
+        if (result.success) {
+          loadCategories();
+        } else {
+          alert(result.message || 'Failed to delete category');
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // Load categories
+    async function loadCategories() {
+      try {
+        const [categoriesResult, statsResult] = await Promise.all([
+          API.categories.getAll(),
+          API.categories.getStats().catch(() => ({ success: false, data: { stats: [] } }))
+        ]);
+
+        if (categoriesResult.success) {
+          const categories = categoriesResult.data.categories || [];
+          // Backend returns {data: {stats: [...]}} not {data: {categories: [...]}}
+          const stats = statsResult.success ? (statsResult.data.stats || []) : [];
+
+          console.log('Categories:', categories);
+          console.log('Stats:', stats);
+
+          if (categories.length === 0) {
+            document.getElementById('categoriesList').innerHTML = '<p style="text-align: center; padding: 40px; color: #64748b;">No categories yet. The default categories will be created automatically when you add your first expense!</p>';
+            return;
+          }
+
+          const html = categories.map(cat => {
+            // Backend stats returns: {category: "name", expenseCount: n, totalAmount: n}
+            // Find stats by category name (case-insensitive)
+            const stat = stats.find(s => {
+              const statCategory = (s.category || '').toLowerCase();
+              const catName = cat.name.toLowerCase();
+              return statCategory === catName;
+            }) || { expenseCount: 0, totalAmount: 0 };
+            
+            return `
+              <div class="category-item">
+                <div>
+                  <strong style="text-transform: capitalize;">${cat.name}</strong>
+                  ${cat.description ? `<br><small style="color: #64748b;">${cat.description}</small>` : ''}
+                </div>
+                <div style="text-align: right; margin: 8px 0;">
+                  <span class="amount">$${(stat.totalAmount || 0).toFixed(2)}</span>
+                  <small style="display: block; margin-top: 4px; color: #64748b;">${stat.expenseCount || 0} expense${(stat.expenseCount || 0) !== 1 ? 's' : ''}</small>
+                </div>
+                <div style="margin-top: 8px;">
+                  <button onclick="editCategory('${cat._id}', '${cat.name.replace(/'/g, "\\'")}', '${(cat.description || '').replace(/'/g, "\\'")}' )" class="btn-secondary btn-sm">Edit</button>
+                  <button onclick="deleteCategory('${cat._id}')" class="btn-danger btn-sm">Delete</button>
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          document.getElementById('categoriesList').innerHTML = html;
+        } else {
+          throw new Error(categoriesResult.message || 'Failed to load categories');
+        }
+      } catch (error) {
+        console.error('Error loading categories:', error);
+        document.getElementById('categoriesList').innerHTML = '<p class="error" style="color: #ef4444; text-align: center; padding: 40px;">Error loading categories. Make sure backend is running!</p>';
+      }
+    }
+
+    // Load on page load
+    loadCategories();
+  </script>
+</body>
+</html>

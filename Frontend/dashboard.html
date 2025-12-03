@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinTrack – Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="logo">FT</div>
+      <span>FinTrack</span>
+    </div>
+    <div class="nav-links">
+      <a href="dashboard.html" class="active">Dashboard</a>
+      <a href="expenses.html">Expenses</a>
+      <a href="reports.html">Reports</a>
+      <a href="categories.html">Categories</a>
+      <a href="profile.html">Profile</a>
+      <a href="admin-dashboard.html" id="adminLink" style="display: none; background: #f59e0b; color: white;">⚙️ Admin Panel</a>
+      <button id="logoutBtn" class="btn-secondary" style="margin-left: auto;">Logout</button>
+    </div>
+  </nav>
+
+  <main class="container">
+    <h1>Dashboard</h1>
+    <p id="welcomeMsg" class="subtitle"></p>
+
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card">
+        <h3 id="monthlyTotal">$0.00</h3>
+        <p>Monthly Spending</p>
+      </div>
+      <div class="stat-card">
+        <h3 id="weeklyTotal">$0.00</h3>
+        <p>Weekly Spending</p>
+      </div>
+      <div class="stat-card">
+        <h3 id="expenseCount">0</h3>
+        <p>Total Expenses</p>
+      </div>
+    </div>
+
+    <h2>Category Breakdown</h2>
+    <div id="categoryBreakdown" class="category-list"></div>
+
+    <h2>Recent Expenses</h2>
+    <div id="recentExpenses" class="expense-list"></div>
+  </main>
+
+  <!-- Load API service first -->
+  <script src="api-service.js"></script>
+  
+  <script>
+    // Require authentication
+    if (!requireAuth()) {
+      // requireAuth() redirects if not authenticated
+    }
+
+    // Check if user is admin and show admin link
+    async function checkAdminRole() {
+      try {
+        const result = await API.auth.getCurrentUser();
+        if (result.success && result.data.user.role === 'admin') {
+          document.getElementById('adminLink').style.display = 'inline-block';
+        }
+      } catch (error) {
+        console.error('Error checking admin role:', error);
+      }
+    }
+    checkAdminRole();
+
+    // Welcome message - check if first login for this user
+    const userEmail = API.auth.getCurrentUserEmail();
+    const loginHistoryKey = `login_history_${userEmail}`;
+    const hasLoggedInBefore = localStorage.getItem(loginHistoryKey);
+    
+    if (!hasLoggedInBefore) {
+      document.getElementById('welcomeMsg').textContent = `Welcome, ${userEmail}!`;
+      localStorage.setItem(loginHistoryKey, 'true');
+    } else {
+      document.getElementById('welcomeMsg').textContent = `Welcome back, ${userEmail}!`;
+    }
+
+    // Logout functionality
+    document.getElementById('logoutBtn').addEventListener('click', async function() {
+      await API.auth.logout();
+      window.location.href = 'index.html';
+    });
+
+    // Load dashboard data
+    async function loadDashboard() {
+      try {
+        const data = await API.reports.getDashboard();
+        console.log('Dashboard data received:', data);
+        
+        if (data.success && data.data) {
+          const dashboard = data.data;
+          console.log('Dashboard object:', dashboard);
+
+          // Update stats with safety checks
+          const monthlyTotal = dashboard.monthly?.total || 0;
+          const weeklyTotal = dashboard.weekly?.total || 0;
+          const monthlyCount = dashboard.monthly?.count || 0;
+
+          document.getElementById('monthlyTotal').textContent = 
+            `$${monthlyTotal.toFixed(2)}`;
+          document.getElementById('weeklyTotal').textContent = 
+            `$${weeklyTotal.toFixed(2)}`;
+          document.getElementById('expenseCount').textContent = monthlyCount;
+
+          // Category breakdown
+          if (dashboard.categoryBreakdown && dashboard.categoryBreakdown.length > 0) {
+            const categoryHTML = dashboard.categoryBreakdown
+              .sort((a, b) => b.total - a.total)
+              .map(cat => {
+                // Category can be in _id or category field
+                const categoryName = cat._id || cat.category || 'Other';
+                const catTotal = cat.total || 0;
+                const catCount = cat.count || 0;
+                const catAvg = catCount > 0 ? catTotal / catCount : 0;
+                return `
+                <div class="category-item">
+                  <div>
+                    <strong style="text-transform: capitalize;">${categoryName}</strong>
+                    <span class="amount">$${catTotal.toFixed(2)}</span>
+                  </div>
+                  <small>${catCount} expense${catCount !== 1 ? 's' : ''} · 
+                  Avg: $${catAvg.toFixed(2)}</small>
+                </div>
+              `}).join('');
+            document.getElementById('categoryBreakdown').innerHTML = categoryHTML;
+          } else {
+            document.getElementById('categoryBreakdown').innerHTML = 
+              '<p style="color: #64748b; padding: 20px; text-align: center;">No expenses yet. Add your first expense to see category breakdown!</p>';
+          }
+
+          // Recent expenses
+          if (dashboard.recentExpenses && dashboard.recentExpenses.length > 0) {
+            const expensesHTML = dashboard.recentExpenses.map(exp => {
+              const expDate = exp.date.split('T')[0];
+              const [year, month, day] = expDate.split('-');
+              const categoryName = exp.category || 'Other';
+              return `
+              <div class="expense-item">
+                <div>
+                  <strong>$${exp.amount.toFixed(2)}</strong> - ${exp.description}
+                </div>
+                <small style="text-transform: capitalize;">${categoryName} · ${month}/${day}/${year}</small>
+              </div>
+            `}).join('');
+            document.getElementById('recentExpenses').innerHTML = expensesHTML;
+          } else {
+            document.getElementById('recentExpenses').innerHTML = 
+              '<p style="color: #64748b; padding: 20px; text-align: center;">No recent expenses</p>';
+          }
+        } else {
+          throw new Error('Invalid dashboard data received');
+        }
+      } catch (error) {
+        console.error('Error loading dashboard:', error);
+        document.getElementById('categoryBreakdown').innerHTML = 
+          '<p style="color: #ef4444; padding: 20px;">Error loading dashboard. Please check browser console (F12) and backend terminal for details.</p>';
+        document.getElementById('recentExpenses').innerHTML = 
+          '<p style="color: #ef4444; padding: 20px;">Error loading expenses</p>';
+      }
+    }
+
+    // Load on page load
+    loadDashboard();
+  </script>
+</body>
+</html>

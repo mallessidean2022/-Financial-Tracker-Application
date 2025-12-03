@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinTrack – Reports</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="logo">FT</div>
+      <span>FinTrack</span>
+    </div>
+    <div class="nav-links">
+      <a href="dashboard.html">Dashboard</a>
+      <a href="expenses.html">Expenses</a>
+      <a href="reports.html" class="active">Reports</a>
+      <a href="categories.html">Categories</a>
+      <a href="profile.html">Profile</a>
+      <a href="admin-dashboard.html" id="adminLink" style="display: none; background: #f59e0b; color: white;">⚙️ Admin Panel</a>
+      <button id="logoutBtn" class="btn-secondary" style="margin-left: auto;">Logout</button>
+    </div>
+  </nav>
+
+  <main class="container">
+    <h1>Financial Reports</h1>
+    <p class="subtitle">Analyze your spending patterns with interactive filters</p>
+
+    <!-- Time Period Selector -->
+    <div class="form-card">
+      <h2>Select Report Period</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+        <div class="form-group">
+          <label>Report Type</label>
+          <select id="reportType">
+            <option value="daily">Daily Report</option>
+            <option value="weekly">Weekly Report</option>
+            <option value="monthly">Monthly Report</option>
+            <option value="custom">Custom Date Range</option>
+          </select>
+        </div>
+        <div class="form-group" id="dateGroup">
+          <label>Select Date</label>
+          <input id="reportDate" type="date">
+        </div>
+        <div class="form-group" id="weekGroup" style="display: none;">
+          <label>Week Starting</label>
+          <input id="reportWeek" type="date">
+        </div>
+        <div class="form-group" id="monthGroup" style="display: none;">
+          <label>Month</label>
+          <input id="reportMonth" type="month">
+        </div>
+        <div class="form-group" id="startDateGroup" style="display: none;">
+          <label>Start Date</label>
+          <input id="startDate" type="date">
+        </div>
+        <div class="form-group" id="endDateGroup" style="display: none;">
+          <label>End Date</label>
+          <input id="endDate" type="date">
+        </div>
+      </div>
+      <button id="generateBtn" class="btn-primary">Generate Report</button>
+    </div>
+
+    <!-- Report Display -->
+    <div id="reportContent">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <h3 id="totalAmount">$0.00</h3>
+          <p>Total Spending</p>
+        </div>
+        <div class="stat-card">
+          <h3 id="expenseCount">0</h3>
+          <p>Total Transactions</p>
+        </div>
+        <div class="stat-card">
+          <h3 id="avgAmount">$0.00</h3>
+          <p>Average per Transaction</p>
+        </div>
+      </div>
+
+      <!-- Spending Trends Chart -->
+      <div class="form-card" style="margin-top: 24px;">
+        <h2>Spending Trends</h2>
+        <p class="subtitle">Visual representation of spending patterns over time</p>
+        <div style="max-width: 900px; margin: 20px auto; height: 400px;">
+          <canvas id="trendsChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Category Breakdown -->
+      <div class="form-card" style="margin-top: 24px;">
+        <h2>Category Breakdown</h2>
+        <div style="max-width: 600px; margin: 20px auto;">
+          <canvas id="categoryChart"></canvas>
+        </div>
+        <div id="categoryTable" style="margin-top: 24px;"></div>
+      </div>
+
+      <!-- Expense Details -->
+      <div class="form-card" style="margin-top: 24px;">
+        <h2>Expense Details</h2>
+        <div id="expenseTable"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="api-service.js"></script>
+  
+  <script>
+    if (!requireAuth()) {
+      // Redirects if not authenticated
+    }
+
+    // Check if user is admin and show admin link
+    async function checkAdminRole() {
+      try {
+        const result = await API.auth.getCurrentUser();
+        if (result.success && result.data.user.role === 'admin') {
+          document.getElementById('adminLink').style.display = 'inline-block';
+        }
+      } catch (error) {
+        console.error('Error checking admin role:', error);
+      }
+    }
+    checkAdminRole();
+
+    // Logout
+    document.getElementById('logoutBtn').addEventListener('click', async function() {
+      await API.auth.logout();
+      window.location.href = 'index.html';
+    });
+
+    // Set default values
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    
+    document.getElementById('reportMonth').value = `${year}-${month}`;
+    document.getElementById('reportDate').value = `${year}-${month}-${day}`;
+    document.getElementById('reportWeek').value = `${year}-${month}-${day}`;
+    document.getElementById('startDate').value = `${year}-${month}-01`;
+    document.getElementById('endDate').value = `${year}-${month}-${day}`;
+
+    let categoryChart = null;
+    let trendsChart = null;
+
+    // Toggle fields based on report type
+    document.getElementById('reportType').addEventListener('change', function() {
+      const type = this.value;
+      document.getElementById('dateGroup').style.display = type === 'daily' ? 'block' : 'none';
+      document.getElementById('weekGroup').style.display = type === 'weekly' ? 'block' : 'none';
+      document.getElementById('monthGroup').style.display = type === 'monthly' ? 'block' : 'none';
+      document.getElementById('startDateGroup').style.display = type === 'custom' ? 'block' : 'none';
+      document.getElementById('endDateGroup').style.display = type === 'custom' ? 'block' : 'none';
+    });
+
+    // Generate report
+    document.getElementById('generateBtn').addEventListener('click', async function() {
+      const type = document.getElementById('reportType').value;
+      
+      try {
+        this.disabled = true;
+        this.textContent = 'Generating...';
+
+        let startDate, endDate;
+        
+        if (type === 'daily') {
+          const dateValue = document.getElementById('reportDate').value;
+          startDate = dateValue + 'T00:00:00.000Z';
+          endDate = dateValue + 'T23:59:59.999Z';
+        } else if (type === 'weekly') {
+          const weekStart = new Date(document.getElementById('reportWeek').value + 'T00:00:00');
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 6);
+          weekEnd.setHours(23, 59, 59, 999);
+          startDate = weekStart.toISOString();
+          endDate = weekEnd.toISOString();
+        } else if (type === 'monthly') {
+          const monthValue = document.getElementById('reportMonth').value;
+          const [year, month] = monthValue.split('-');
+          const start = new Date(year, month - 1, 1);
+          const end = new Date(year, month, 0, 23, 59, 59, 999);
+          startDate = start.toISOString();
+          endDate = end.toISOString();
+        } else if (type === 'custom') {
+          const start = document.getElementById('startDate').value;
+          const end = document.getElementById('endDate').value;
+          if (!start || !end) {
+            alert('Please select both start and end dates');
+            this.disabled = false;
+            this.textContent = 'Generate Report';
+            return;
+          }
+          startDate = start + 'T00:00:00.000Z';
+          endDate = end + 'T23:59:59.999Z';
+        }
+
+        console.log('Fetching expenses for date range:', { startDate, endDate });
+        
+        // Fetch expenses for the date range
+        const result = await API.expenses.getAll({ startDate, endDate });
+        
+        if (result && result.success) {
+          const expenses = result.data.expenses;
+          console.log('Expenses received:', expenses);
+          displayReport(expenses, type);
+        } else {
+          throw new Error(result?.message || 'Failed to generate report');
+        }
+
+        this.disabled = false;
+        this.textContent = 'Generate Report';
+      } catch (error) {
+        console.error('Report generation error:', error);
+        alert('Error generating report: ' + error.message);
+        this.disabled = false;
+        this.textContent = 'Generate Report';
+      }
+    });
+
+    function displayReport(expenses, reportType) {
+      if (!expenses || expenses.length === 0) {
+        document.getElementById('totalAmount').textContent = '$0.00';
+        document.getElementById('expenseCount').textContent = '0';
+        document.getElementById('avgAmount').textContent = '$0.00';
+        
+        if (categoryChart) categoryChart.destroy();
+        if (trendsChart) trendsChart.destroy();
+        
+        document.getElementById('categoryTable').innerHTML = '<p style="text-align: center; padding: 40px; color: #64748b;">No expenses found for this period</p>';
+        document.getElementById('expenseTable').innerHTML = '<p style="text-align: center; padding: 40px; color: #64748b;">No expenses found for this period</p>';
+        return;
+      }
+
+      // Calculate totals
+      const total = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+      const count = expenses.length;
+      const average = count > 0 ? total / count : 0;
+
+      document.getElementById('totalAmount').textContent = `$${total.toFixed(2)}`;
+      document.getElementById('expenseCount').textContent = count;
+      document.getElementById('avgAmount').textContent = `$${average.toFixed(2)}`;
+
+      // Group by category
+      const categoryData = {};
+      expenses.forEach(exp => {
+        const cat = exp.category || 'Other';
+        if (!categoryData[cat]) {
+          categoryData[cat] = { total: 0, count: 0 };
+        }
+        categoryData[cat].total += exp.amount;
+        categoryData[cat].count += 1;
+      });
+
+      // Category pie chart
+      const categories = Object.keys(categoryData);
+      const amounts = categories.map(cat => categoryData[cat].total);
+
+      if (categoryChart) categoryChart.destroy();
+
+      const ctxCategory = document.getElementById('categoryChart').getContext('2d');
+      categoryChart = new Chart(ctxCategory, {
+        type: 'pie',
+        data: {
+          labels: categories.map(c => c.charAt(0).toUpperCase() + c.slice(1)),
+          datasets: [{
+            data: amounts,
+            backgroundColor: [
+              '#14b8a6', '#0f766e', '#22c55e', '#f97316',
+              '#6366f1', '#ec4899', '#facc15', '#0ea5e9',
+              '#8b5cf6', '#10b981'
+            ]
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              position: 'bottom'
+            },
+            title: {
+              display: true,
+              text: 'Spending by Category'
+            }
+          }
+        }
+      });
+
+      // Category table
+      const categoryTableHTML = `
+        <h3 style="margin-bottom: 16px;">Category Summary</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="background: #f3f4f6;">
+              <th style="padding: 12px; text-align: left;">Category</th>
+              <th style="padding: 12px; text-align: right;">Amount</th>
+              <th style="padding: 12px; text-align: right;">Count</th>
+              <th style="padding: 12px; text-align: right;">Average</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${categories.map(cat => {
+              const catTotal = categoryData[cat].total;
+              const catCount = categoryData[cat].count;
+              const catAvg = catTotal / catCount;
+              return `
+              <tr style="border-bottom: 1px solid #e5e7eb;">
+                <td style="padding: 12px; text-transform: capitalize;">${cat}</td>
+                <td style="padding: 12px; text-align: right; font-weight: 600; color: #14b8a6;">$${catTotal.toFixed(2)}</td>
+                <td style="padding: 12px; text-align: right;">${catCount}</td>
+                <td style="padding: 12px; text-align: right;">$${catAvg.toFixed(2)}</td>
+              </tr>
+            `}).join('')}
+          </tbody>
+        </table>
+      `;
+      document.getElementById('categoryTable').innerHTML = categoryTableHTML;
+
+      // Spending trends over time
+      displayTrendsChart(expenses, reportType);
+
+      // Expense details table
+      const expenseTableHTML = `
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="background: #f3f4f6;">
+              <th style="padding: 12px; text-align: left;">Date</th>
+              <th style="padding: 12px; text-align: left;">Description</th>
+              <th style="padding: 12px; text-align: left;">Category</th>
+              <th style="padding: 12px; text-align: right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${expenses.sort((a, b) => new Date(b.date) - new Date(a.date)).map(exp => {
+              const expDate = exp.date.split('T')[0];
+              const [year, month, day] = expDate.split('-');
+              return `
+              <tr style="border-bottom: 1px solid #e5e7eb;">
+                <td style="padding: 12px;">${month}/${day}/${year}</td>
+                <td style="padding: 12px;">${exp.description}</td>
+                <td style="padding: 12px; text-transform: capitalize;">${exp.category || 'Other'}</td>
+                <td style="padding: 12px; text-align: right; font-weight: 600; color: #14b8a6;">$${exp.amount.toFixed(2)}</td>
+              </tr>
+            `}).join('')}
+          </tbody>
+        </table>
+      `;
+      document.getElementById('expenseTable').innerHTML = expenseTableHTML;
+    }
+
+    function displayTrendsChart(expenses, reportType) {
+      // Sort expenses by date first
+      const sortedExpenses = expenses.sort((a, b) => new Date(a.date) - new Date(b.date));
+      
+      // Group expenses by date with proper sorting
+      const dateData = {};
+      const dateOrder = []; // Keep track of order
+      
+      sortedExpenses.forEach(exp => {
+        const expDate = new Date(exp.date);
+        let key;
+        
+        if (reportType === 'daily') {
+          // Group by hour for daily view
+          const hour = expDate.getHours();
+          key = `${String(hour).padStart(2, '0')}:00`;
+        } else if (reportType === 'weekly') {
+          // Group by day for weekly view - show date with day name
+          const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          const month = String(expDate.getMonth() + 1).padStart(2, '0');
+          const day = String(expDate.getDate()).padStart(2, '0');
+          key = `${days[expDate.getDay()]} ${month}/${day}`;
+        } else if (reportType === 'monthly') {
+          // Group by day for monthly view - show MM/DD format
+          const month = String(expDate.getMonth() + 1).padStart(2, '0');
+          const day = String(expDate.getDate()).padStart(2, '0');
+          key = `${month}/${day}`;
+        } else {
+          // Group by date for custom range - show MM/DD/YYYY
+          const month = String(expDate.getMonth() + 1).padStart(2, '0');
+          const day = String(expDate.getDate()).padStart(2, '0');
+          key = `${month}/${day}/${expDate.getFullYear()}`;
+        }
+        
+        if (!dateData[key]) {
+          dateData[key] = 0;
+          dateOrder.push(key);
+        }
+        dateData[key] += exp.amount;
+      });
+
+      // Remove duplicates from dateOrder while maintaining order
+      const labels = [...new Set(dateOrder)];
+      const data = labels.map(label => dateData[label]);
+
+      if (trendsChart) trendsChart.destroy();
+
+      const ctxTrends = document.getElementById('trendsChart').getContext('2d');
+      trendsChart = new Chart(ctxTrends, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Spending',
+            data: data,
+            borderColor: '#14b8a6',
+            backgroundColor: 'rgba(20, 184, 166, 0.1)',
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            title: {
+              display: true,
+              text: 'Spending Pattern Over Time'
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: function(value) {
+                  return '$' + value.toFixed(0);
+                }
+              }
+            },
+            x: {
+              ticks: {
+                maxRotation: 45,
+                minRotation: 45
+              }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>

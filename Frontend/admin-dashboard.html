@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinTrack – Admin Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="logo">FT</div>
+      <span>FinTrack - Admin</span>
+    </div>
+    <div class="nav-links">
+      <a href="admin-dashboard.html" class="active">Admin Dashboard</a>
+      <a href="admin-users.html">User Management</a>
+      <a href="dashboard.html">User View</a>
+      <button id="logoutBtn" class="btn-secondary" style="margin-left: auto;">Logout</button>
+    </div>
+  </nav>
+
+  <main class="container">
+    <h1>Admin Dashboard</h1>
+    <p class="subtitle">System Overview and Statistics</p>
+
+    <!-- System Statistics -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <h3 id="totalUsers">0</h3>
+        <p>Total Users</p>
+      </div>
+      <div class="stat-card">
+        <h3 id="totalAdmins">0</h3>
+        <p>Administrators</p>
+      </div>
+      <div class="stat-card">
+        <h3 id="totalExpenses">0</h3>
+        <p>Total Expenses</p>
+      </div>
+      <div class="stat-card">
+        <h3 id="totalSpending">$0.00</h3>
+        <p>Total System Spending</p>
+      </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="form-card" style="margin-top: 24px;">
+      <h2>Recent Activity</h2>
+      <p class="subtitle">New users in the last 7 days: <strong id="recentUsers">0</strong></p>
+    </div>
+
+    <!-- Most Active Users -->
+    <div class="form-card" style="margin-top: 24px;">
+      <h2>Most Active Users</h2>
+      <table id="activeUsersTable" style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="background: #f3f4f6;">
+            <th style="padding: 12px; text-align: left;">Username</th>
+            <th style="padding: 12px; text-align: left;">Email</th>
+            <th style="padding: 12px; text-align: right;">Expenses</th>
+            <th style="padding: 12px; text-align: right;">Total Spent</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="form-card" style="margin-top: 24px;">
+      <h2>Quick Actions</h2>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <a href="admin-users.html" class="btn-primary">Manage Users</a>
+        <a href="admin-users.html#create" class="btn-primary">Create New User</a>
+        <a href="dashboard.html" class="btn-secondary">Switch to User View</a>
+      </div>
+    </div>
+  </main>
+
+  <script src="api-service.js"></script>
+  
+  <script>
+    if (!requireAuth()) {
+      // Redirects if not authenticated
+    }
+
+    // Check if user is admin
+    async function checkAdminAccess() {
+      try {
+        const result = await API.auth.getCurrentUser();
+        if (!result.success || result.data.user.role !== 'admin') {
+          alert('Admin access required');
+          window.location.href = 'dashboard.html';
+        }
+      } catch (error) {
+        console.error('Access check error:', error);
+        window.location.href = 'dashboard.html';
+      }
+    }
+
+    checkAdminAccess();
+
+    // Logout
+    document.getElementById('logoutBtn').addEventListener('click', async function() {
+      await API.auth.logout();
+      window.location.href = 'index.html';
+    });
+
+    // Load admin statistics
+    async function loadStats() {
+      try {
+        const result = await API.admin.getStats();
+        
+        if (result.success) {
+          const { statistics, mostActiveUsers } = result.data;
+          
+          document.getElementById('totalUsers').textContent = statistics.totalUsers;
+          document.getElementById('totalAdmins').textContent = statistics.totalAdmins;
+          document.getElementById('totalExpenses').textContent = statistics.totalExpenses;
+          document.getElementById('totalSpending').textContent = 
+            `$${statistics.totalSpending.toFixed(2)}`;
+          document.getElementById('recentUsers').textContent = statistics.recentUsers;
+
+          // Display most active users
+          const tbody = document.querySelector('#activeUsersTable tbody');
+          if (mostActiveUsers && mostActiveUsers.length > 0) {
+            tbody.innerHTML = mostActiveUsers.map(user => `
+              <tr style="border-bottom: 1px solid #e5e7eb;">
+                <td style="padding: 12px;">${user.username}</td>
+                <td style="padding: 12px;">${user.email}</td>
+                <td style="padding: 12px; text-align: right;">${user.expenseCount}</td>
+                <td style="padding: 12px; text-align: right; font-weight: 600; color: #14b8a6;">
+                  $${user.totalSpent.toFixed(2)}
+                </td>
+              </tr>
+            `).join('');
+          } else {
+            tbody.innerHTML = '<tr><td colspan="4" style="padding: 20px; text-align: center; color: #64748b;">No active users yet</td></tr>';
+          }
+        }
+      } catch (error) {
+        console.error('Error loading stats:', error);
+        alert('Error loading admin statistics');
+      }
+    }
+
+    loadStats();
+  </script>
+</body>
+</html>

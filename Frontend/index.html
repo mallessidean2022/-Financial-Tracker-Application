@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinTrack – Login</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="auth-body">
+  <main class="auth-card">
+    <div class="brand">
+      <div class="logo">FT</div>
+      <h2>FinTrack Login</h2>
+    </div>
+
+    <label>Email</label>
+    <input id="loginEmail" type="email" placeholder="Enter email">
+
+    <label>Password</label>
+    <input id="loginPass" type="password" placeholder="Enter password">
+
+    <button id="loginBtn" class="btn-primary">Login</button>
+
+    <p class="small">
+      Don't have an account?
+      <a href="register.html" class="link">Register here</a>
+    </p>
+
+    <p id="loginMsg" class="error"></p>
+  </main>
+
+  <!-- Load API service first -->
+  <script src="api-service.js"></script>
+  
+  <script>
+    // Check if already logged in
+    if (API.auth.isAuthenticated()) {
+      window.location.href = 'dashboard.html';
+    }
+
+    // Login functionality
+    document.getElementById('loginBtn').addEventListener('click', async function() {
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPass').value;
+      const msgEl = document.getElementById('loginMsg');
+
+      if (!email || !password) {
+        msgEl.textContent = 'Please enter both email and password';
+        msgEl.className = 'error';
+        return;
+      }
+
+      try {
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Logging in...';
+
+        const result = await API.auth.login(email, password);
+
+        if (result.success) {
+          msgEl.textContent = 'Login successful! Redirecting...';
+          msgEl.className = 'success';
+          setTimeout(() => {
+            window.location.href = 'dashboard.html';
+          }, 500);
+        } else {
+          msgEl.textContent = result.message || 'Login failed';
+          msgEl.className = 'error';
+          btn.disabled = false;
+          btn.textContent = 'Login';
+        }
+      } catch (error) {
+        msgEl.textContent = 'Error: ' + error.message + '. Make sure backend is running!';
+        msgEl.className = 'error';
+        this.disabled = false;
+        this.textContent = 'Login';
+      }
+    });
+
+    // Enter key to login
+    document.getElementById('loginPass').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        document.getElementById('loginBtn').click();
+      }
+    });
+  </script>
+</body>
+</html>

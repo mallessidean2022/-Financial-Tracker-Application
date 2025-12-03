@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinTrack – Register</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="auth-body">
+  <main class="auth-card">
+    <div class="brand">
+      <div class="logo">FT</div>
+      <h2>Create Account</h2>
+    </div>
+
+    <label>Email</label>
+    <input id="regEmail" type="email" placeholder="Enter email">
+
+    <label>Username</label>
+    <input id="regUsername" type="text" placeholder="Choose a username">
+
+    <label>Password</label>
+    <input id="regPass" type="password" placeholder="Create password (min 6 characters)">
+
+    <button id="regBtn" class="btn-primary">Register</button>
+
+    <p class="small">
+      Already have an account?
+      <a href="index.html" class="link">Login here</a>
+    </p>
+
+    <p id="regMsg" class="error"></p>
+  </main>
+
+  <!-- Load API service first -->
+  <script src="api-service.js"></script>
+  
+  <script>
+    // Check if already logged in
+    if (API.auth.isAuthenticated()) {
+      window.location.href = 'dashboard.html';
+    }
+
+    // Register functionality
+    document.getElementById('regBtn').addEventListener('click', async function() {
+      const email = document.getElementById('regEmail').value.trim();
+      const username = document.getElementById('regUsername').value.trim();
+      const password = document.getElementById('regPass').value;
+      const msgEl = document.getElementById('regMsg');
+
+      // Validation
+      if (!email || !username || !password) {
+        msgEl.textContent = 'Please fill in all fields';
+        msgEl.className = 'error';
+        return;
+      }
+
+      if (password.length < 6) {
+        msgEl.textContent = 'Password must be at least 6 characters';
+        msgEl.className = 'error';
+        return;
+      }
+
+      if (username.length < 3 || username.length > 30) {
+        msgEl.textContent = 'Username must be 3-30 characters';
+        msgEl.className = 'error';
+        return;
+      }
+
+      try {
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Creating account...';
+
+        const result = await API.auth.register(email, username, password);
+
+        if (result.success) {
+          msgEl.textContent = 'Account created! Redirecting...';
+          msgEl.className = 'success';
+          setTimeout(() => {
+            window.location.href = 'dashboard.html';
+          }, 500);
+        } else {
+          // Show detailed error message
+          let errorMsg = result.message || 'Registration failed';
+          
+          // If there are validation errors, show them
+          if (result.errors && Array.isArray(result.errors)) {
+            errorMsg = result.errors.map(err => err.msg || err.message).join(', ');
+          }
+          
+          msgEl.textContent = errorMsg;
+          msgEl.className = 'error';
+          btn.disabled = false;
+          btn.textContent = 'Register';
+        }
+      } catch (error) {
+        console.error('Registration error:', error);
+        msgEl.textContent = 'Error: ' + error.message + '. Make sure backend is running!';
+        msgEl.className = 'error';
+        this.disabled = false;
+        this.textContent = 'Register';
+      }
+    });
+
+    // Enter key to register
+    document.getElementById('regPass').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        document.getElementById('regBtn').click();
+      }
+    });
+  </script>
+</body>
+</html>

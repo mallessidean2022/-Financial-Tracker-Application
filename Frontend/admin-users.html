@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinTrack – User Management</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="logo">FT</div>
+      <span>FinTrack - Admin</span>
+    </div>
+    <div class="nav-links">
+      <a href="admin-dashboard.html">Admin Dashboard</a>
+      <a href="admin-users.html" class="active">User Management</a>
+      <a href="dashboard.html">User View</a>
+      <button id="logoutBtn" class="btn-secondary" style="margin-left: auto;">Logout</button>
+    </div>
+  </nav>
+
+  <main class="container">
+    <h1>User Management</h1>
+    <p class="subtitle">Manage system users and permissions</p>
+
+    <!-- Create New User Form -->
+    <div class="form-card" id="create">
+      <h2>Create New User</h2>
+      <form id="createUserForm">
+        <div class="form-group">
+          <label>Email</label>
+          <input id="newEmail" type="email" required placeholder="user@example.com">
+        </div>
+        <div class="form-group">
+          <label>Username</label>
+          <input id="newUsername" type="text" required placeholder="username">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input id="newPassword" type="password" required placeholder="Min 6 characters">
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <select id="newRole">
+            <option value="user">Regular User</option>
+            <option value="admin">Administrator</option>
+          </select>
+        </div>
+        <button type="submit" class="btn-primary">Create User</button>
+        <p id="createMsg" class="message"></p>
+      </form>
+    </div>
+
+    <!-- Users List -->
+    <div class="form-card" style="margin-top: 24px;">
+      <h2>All Users (<span id="userCount">0</span>)</h2>
+      <div id="usersList"></div>
+    </div>
+  </main>
+
+  <script src="api-service.js"></script>
+  
+  <script>
+    if (!requireAuth()) {
+      // Redirects if not authenticated
+    }
+
+    // Check if user is admin
+    async function checkAdminAccess() {
+      try {
+        const result = await API.auth.getCurrentUser();
+        if (!result.success || result.data.user.role !== 'admin') {
+          alert('Admin access required');
+          window.location.href = 'dashboard.html';
+        }
+      } catch (error) {
+        console.error('Access check error:', error);
+        window.location.href = 'dashboard.html';
+      }
+    }
+
+    checkAdminAccess();
+
+    // Logout
+    document.getElementById('logoutBtn').addEventListener('click', async function() {
+      await API.auth.logout();
+      window.location.href = 'index.html';
+    });
+
+    // Create new user
+    document.getElementById('createUserForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const email = document.getElementById('newEmail').value.trim();
+      const username = document.getElementById('newUsername').value.trim();
+      const password = document.getElementById('newPassword').value;
+      const role = document.getElementById('newRole').value;
+      const msgEl = document.getElementById('createMsg');
+
+      try {
+        const result = await API.admin.createUser({ email, username, password, role });
+        
+        if (result.success) {
+          msgEl.textContent = 'User created successfully!';
+          msgEl.className = 'message success';
+          
+          // Clear form
+          document.getElementById('createUserForm').reset();
+          
+          // Reload users list
+          loadUsers();
+        } else {
+          msgEl.textContent = result.message || 'Failed to create user';
+          msgEl.className = 'message error';
+        }
+      } catch (error) {
+        msgEl.textContent = 'Error: ' + error.message;
+        msgEl.className = 'message error';
+      }
+    });
+
+    // Load all users
+    async function loadUsers() {
+      try {
+        const result = await API.admin.getAllUsers();
+        
+        if (result.success) {
+          const users = result.data.users;
+          document.getElementById('userCount').textContent = users.length;
+
+          if (users.length === 0) {
+            document.getElementById('usersList').innerHTML = 
+              '<p style="text-align: center; padding: 40px; color: #64748b;">No users found</p>';
+            return;
+          }
+
+          const html = users.map(user => `
+            <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div style="flex: 1;">
+                  <h3 style="margin: 0 0 8px 0; color: #111827;">
+                    ${user.username}
+                    ${user.role === 'admin' ? '<span style="background: #14b8a6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px;">ADMIN</span>' : ''}
+                  </h3>
+                  <p style="margin: 4px 0; color: #64748b; font-size: 14px;">
+                    📧 ${user.email}
+                  </p>
+                  <p style="margin: 4px 0; color: #64748b; font-size: 14px;">
+                    💰 ${user.expenseCount} expenses · $${(user.totalSpent || 0).toFixed(2)} total
+                  </p>
+                  <p style="margin: 4px 0; color: #64748b; font-size: 12px;">
+                    Joined: ${new Date(user.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <div style="display: flex; gap: 8px; flex-direction: column;">
+                  <select id="role-${user._id}" onchange="updateRole('${user._id}', this.value)" 
+                    style="padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 6px;">
+                    <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
+                    <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+                  </select>
+                  <button onclick="deleteUser('${user._id}', '${user.username}')" 
+                    class="btn-danger btn-sm">Delete</button>
+                </div>
+              </div>
+            </div>
+          `).join('');
+
+          document.getElementById('usersList').innerHTML = html;
+        }
+      } catch (error) {
+        console.error('Error loading users:', error);
+        document.getElementById('usersList').innerHTML = 
+          '<p style="color: #ef4444; text-align: center; padding: 40px;">Error loading users. Check console for details.</p>';
+      }
+    }
+
+    // Update user role
+    async function updateRole(userId, newRole) {
+      if (!confirm(`Change user role to ${newRole}?`)) {
+        loadUsers(); // Reload to reset dropdown
+        return;
+      }
+
+      try {
+        const result = await API.admin.updateUserRole(userId, newRole);
+        
+        if (result.success) {
+          alert('User role updated successfully!');
+          loadUsers();
+        } else {
+          alert(result.message || 'Failed to update role');
+          loadUsers();
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+        loadUsers();
+      }
+    }
+
+    // Delete user
+    async function deleteUser(userId, username) {
+      if (!confirm(`Delete user "${username}" and all their data? This cannot be undone!`)) {
+        return;
+      }
+
+      try {
+        const result = await API.admin.deleteUser(userId);
+        
+        if (result.success) {
+          alert('User deleted successfully!');
+          loadUsers();
+        } else {
+          alert(result.message || 'Failed to delete user');
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // Make functions global
+    window.updateRole = updateRole;
+    window.deleteUser = deleteUser;
+
+    // Load users on page load
+    loadUsers();
+  </script>
+</body>
+</html>
